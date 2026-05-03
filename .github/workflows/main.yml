@@ -25,7 +25,7 @@ jobs:
             pkgconfig \
             musl-dev \
             linux-headers \
-            libatomic-static
+            libc-dev
 
       - name: Clone SSHFS
         run: |
@@ -38,9 +38,9 @@ jobs:
           cd sshfs
           mkdir build && cd build
           
-          # Принудительно заменяем все динамические библиотеки на статические
-          export LDFLAGS="-static -Wl,-Bstatic"
-          export CFLAGS="-Os -static"
+          # Отключаем атомики и используем встроенные функции
+          export LDFLAGS="-static -pthread -Wl,-Bstatic"
+          export CFLAGS="-Os -static -D_GNU_SOURCE"
           
           meson setup \
             --prefix=/usr \
@@ -48,31 +48,31 @@ jobs:
             --default-library=static \
             -Dfuse3:static=true \
             -Dglib:static=true \
-            -Dc_args="-static" \
-            -Dc_link_args="-static -Wl,-Bstatic" \
+            -Datomic=true \
             ..
           
-          # Заменяем все .so на .a в файле сборки
+          # Исправляем ссылки на библиотеки
+          sed -i 's|/usr/lib/libatomic.so||g' build.ninja
           sed -i 's|/usr/lib/libfuse3.so|/usr/lib/libfuse3.a|g' build.ninja
           sed -i 's|/usr/lib/libglib-2.0.so|/usr/lib/libglib-2.0.a|g' build.ninja
           sed -i 's|/usr/lib/libgthread-2.0.so|/usr/lib/libgthread-2.0.a|g' build.ninja
           sed -i 's|/usr/lib/libintl.so|/usr/lib/libintl.a|g' build.ninja
-          sed -i 's|/usr/lib/libatomic.so|/usr/lib/libatomic.a|g' build.ninja
           sed -i 's|/usr/lib/libpcre2-8.so|/usr/lib/libpcre2-8.a|g' build.ninja
           
-          ninja
+          ninja -v
 
       - name: Verify binary
         run: |
           cd sshfs/build
-          echo "=== Размер ==="
-          ls -lh sshfs
-          echo ""
-          echo "=== Тип файла ==="
-          file sshfs
-          echo ""
-          echo "=== Зависимости ==="
-          ldd sshfs 2>&1 || echo "✓ Статическая сборка успешна!"
+          if [ -f sshfs ]; then
+            echo "=== Сборка успешна! ==="
+            ls -lh sshfs
+            file sshfs
+            ldd sshfs 2>&1 || echo "✓ Статический бинарник готов!"
+          else
+            echo "Бинарник не создан"
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
