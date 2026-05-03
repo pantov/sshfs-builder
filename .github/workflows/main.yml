@@ -1,4 +1,4 @@
-name: Build Fully Static SSHFS (Alpine - Fixed)
+name: Build Fully Static SSHFS (Alpine - Final)
 
 on:
   workflow_dispatch:
@@ -24,7 +24,8 @@ jobs:
             git \
             pkgconfig \
             musl-dev \
-            linux-headers
+            linux-headers \
+            libatomic-static
 
       - name: Clone SSHFS
         run: |
@@ -32,24 +33,15 @@ jobs:
           cd sshfs
           git checkout sshfs-3.7.5
 
-      - name: Build static SSHFS (forced)
+      - name: Build static SSHFS
         run: |
           cd sshfs
           mkdir build && cd build
           
-          # Создаем файл с принудительными опциями
-          cat > static-options.txt << 'EOF'
-          [built-in options]
-          c_args = ['-static']
-          c_link_args = ['-static', '-Wl,-Bstatic', '-Wl,--whole-archive', '-lfuse3', '-lglib-2.0', '-lgthread-2.0', '-lintl', '-Wl,--no-whole-archive']
-          EOF
-          
-          # Указываем pkg-config искать только статические библиотеки
-          export PKG_CONFIG="pkg-config --static"
+          # Принудительно заменяем все динамические библиотеки на статические
           export LDFLAGS="-static -Wl,-Bstatic"
           export CFLAGS="-Os -static"
           
-          # Явно указываем пути к статическим библиотекам
           meson setup \
             --prefix=/usr \
             --buildtype=release \
@@ -60,11 +52,13 @@ jobs:
             -Dc_link_args="-static -Wl,-Bstatic" \
             ..
           
-          # Правим файл сборки принудительно
+          # Заменяем все .so на .a в файле сборки
           sed -i 's|/usr/lib/libfuse3.so|/usr/lib/libfuse3.a|g' build.ninja
           sed -i 's|/usr/lib/libglib-2.0.so|/usr/lib/libglib-2.0.a|g' build.ninja
           sed -i 's|/usr/lib/libgthread-2.0.so|/usr/lib/libgthread-2.0.a|g' build.ninja
           sed -i 's|/usr/lib/libintl.so|/usr/lib/libintl.a|g' build.ninja
+          sed -i 's|/usr/lib/libatomic.so|/usr/lib/libatomic.a|g' build.ninja
+          sed -i 's|/usr/lib/libpcre2-8.so|/usr/lib/libpcre2-8.a|g' build.ninja
           
           ninja
 
@@ -78,7 +72,7 @@ jobs:
           file sshfs
           echo ""
           echo "=== Зависимости ==="
-          ldd sshfs 2>&1 || echo "✓ Статическая сборка успешна! Нет динамических зависимостей"
+          ldd sshfs 2>&1 || echo "✓ Статическая сборка успешна!"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
