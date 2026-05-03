@@ -1,71 +1,29 @@
-name: Build Static SSHFS
+name: Build static sshfs
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04  # Используем старый Ubuntu для совместимости GLIBC
-    
+    runs-on: ubuntu-latest
     steps:
-      - name: Install build dependencies
+      - uses: actions/checkout@v4
+      
+      - name: Build static sshfs
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git \
-            meson \
-            ninja-build \
-            pkg-config \
-            libfuse3-dev \
-            libglib2.0-dev \
-            libpcre2-dev \
-            gcc \
-            make \
-            python3 \
-            gettext
-
-      - name: Clone SSHFS source
-        run: |
+          sudo apt update
+          sudo apt install -y git meson ninja-build pkg-config libfuse3-dev libglib2.0-dev gcc make
           git clone https://github.com/libfuse/sshfs.git
           cd sshfs
           git checkout sshfs-3.7.5
-
-      - name: Build static SSHFS
-        run: |
-          cd sshfs
           mkdir build && cd build
-          
-          # Статическая сборка
           export LDFLAGS="-static -pthread"
-          export CFLAGS="-Os -static"
-          
-          meson setup \
-            --prefix=/usr \
-            --buildtype=release \
-            --default-library=static \
-            -Dfuse3:static=true \
-            ..
-          
+          meson setup --prefix=/usr --buildtype=release --default-library=static ..
           ninja
-          
-          # Проверка размера (статический бинарник должен быть ~200KB+)
-          ls -lh sshfs
-
-      - name: Verify static binary
-        run: |
-          cd sshfs/build
-          echo "=== Проверка файла ==="
-          file sshfs
-          echo ""
-          echo "=== Зависимости (должно быть 'statically linked') ==="
-          ldd sshfs || echo "✓ Статическая сборка - нет динамических зависимостей"
-          echo ""
-          echo "=== Версия ==="
-          ./sshfs --version
-
-      - name: Upload binary artifact
+          cp sshfs /tmp/sshfs
+      
+      - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: sshfs-static
-          path: sshfs/build/sshfs
-          retention-days: 90
+          path: /tmp/sshfs
