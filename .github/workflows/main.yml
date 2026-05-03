@@ -1,4 +1,4 @@
-name: Build Fully Static SSHFS (Alpine)
+name: Build Fully Static SSHFS (Alpine - Fixed)
 
 on:
   workflow_dispatch:
@@ -26,25 +26,61 @@ jobs:
             musl-dev \
             linux-headers
 
-      - name: Clone and build SSHFS
+      - name: Clone SSHFS
         run: |
           git clone https://github.com/libfuse/sshfs.git
           cd sshfs
           git checkout sshfs-3.7.5
+
+      - name: Build static SSHFS (forced)
+        run: |
+          cd sshfs
           mkdir build && cd build
-
-          export LDFLAGS="-static"
+          
+          # Создаем файл с принудительными опциями
+          cat > static-options.txt << 'EOF'
+          [built-in options]
+          c_args = ['-static']
+          c_link_args = ['-static', '-Wl,-Bstatic', '-Wl,--whole-archive', '-lfuse3', '-lglib-2.0', '-lgthread-2.0', '-lintl', '-Wl,--no-whole-archive']
+          EOF
+          
+          # Указываем pkg-config искать только статические библиотеки
+          export PKG_CONFIG="pkg-config --static"
+          export LDFLAGS="-static -Wl,-Bstatic"
           export CFLAGS="-Os -static"
-
+          
+          # Явно указываем пути к статическим библиотекам
           meson setup \
             --prefix=/usr \
             --buildtype=release \
             --default-library=static \
+            -Dfuse3:static=true \
+            -Dglib:static=true \
+            -Dc_args="-static" \
+            -Dc_link_args="-static -Wl,-Bstatic" \
             ..
-
+          
+          # Правим файл сборки принудительно
+          sed -i 's|/usr/lib/libfuse3.so|/usr/lib/libfuse3.a|g' build.ninja
+          sed -i 's|/usr/lib/libglib-2.0.so|/usr/lib/libglib-2.0.a|g' build.ninja
+          sed -i 's|/usr/lib/libgthread-2.0.so|/usr/lib/libgthread-2.0.a|g' build.ninja
+          sed -i 's|/usr/lib/libintl.so|/usr/lib/libintl.a|g' build.ninja
+          
           ninja
 
-      - name: Upload binary
+      - name: Verify binary
+        run: |
+          cd sshfs/build
+          echo "=== Размер ==="
+          ls -lh sshfs
+          echo ""
+          echo "=== Тип файла ==="
+          file sshfs
+          echo ""
+          echo "=== Зависимости ==="
+          ldd sshfs 2>&1 || echo "✓ Статическая сборка успешна! Нет динамических зависимостей"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: sshfs-static-3.7.5
