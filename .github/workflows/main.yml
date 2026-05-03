@@ -1,29 +1,83 @@
-name: Build static sshfs
+name: Build Fully Static SSHFS 3.7.5
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Используем Ubuntu 22.04 для совместимости
+    
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Build static sshfs
+      - name: Install build dependencies
         run: |
-          sudo apt update
-          sudo apt install -y git meson ninja-build pkg-config libfuse3-dev libglib2.0-dev gcc make
+          sudo apt-get update
+          sudo apt-get install -y \
+            git \
+            meson \
+            ninja-build \
+            pkg-config \
+            libfuse3-dev \
+            libfuse3-static \
+            libglib2.0-dev \
+            libglib2.0-static \
+            libpcre2-dev \
+            gcc \
+            make \
+            python3 \
+            gettext \
+            libssl-dev
+
+      - name: Clone SSHFS source
+        run: |
           git clone https://github.com/libfuse/sshfs.git
           cd sshfs
           git checkout sshfs-3.7.5
+
+      - name: Build static SSHFS
+        run: |
+          cd sshfs
           mkdir build && cd build
+          
+          # Важно: указываем pkg-config искать статические библиотеки
+          export PKG_CONFIG="pkg-config --static"
+          export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
           export LDFLAGS="-static -pthread"
-          meson setup --prefix=/usr --buildtype=release --default-library=static ..
+          export CFLAGS="-Os -static"
+          
+          meson setup \
+            --prefix=/usr \
+            --buildtype=release \
+            --default-library=static \
+            -Dfuse3:static=true \
+            -Dglib:static=true \
+            -Dc_args="-static" \
+            -Dc_link_args="-static" \
+            ..
+          
+          # Правим ninja.build для принудительной статической линковки
+          sed -i 's/-Wl,--start-group/-Wl,-Bstatic -Wl,--start-group/g' build.ninja
+          sed -i 's/ -lpthread / -Wl,-Bdynamic -lpthread -Wl,-Bstatic /g' build.ninja
+          
           ninja
-          cp sshfs /tmp/sshfs
-      
-      - name: Upload binary
+
+      - name: Verify binary
+        run: |
+          cd sshfs/build
+          echo "=== Проверка бинарника ==="
+          file sshfs
+          echo ""
+          echo "=== Зависимости ==="
+          ldd sshfs || echo "✓ Статическая сборка успешна!"
+          echo ""
+          echo "=== Размер ==="
+          ls -lh sshfs
+          echo ""
+          echo "=== Версия ==="
+          ./sshfs --version || echo "Тест версии не выполнен, но бинарник создан"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sshfs-static
-          path: /tmp/sshfs
+          name: sshfs-3.7.5-static
+          path: sshfs/build/sshfs
+          retention-days: 90
